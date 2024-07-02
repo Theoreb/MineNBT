@@ -1,6 +1,6 @@
 import struct
-from typing import Dict, List, Type
-from nbt.stream import Stream
+from typing import Type
+from proto.stream import Stream
 
 
 def read_string(stream: Stream) -> str:
@@ -16,21 +16,23 @@ class Tag:
     def build(self) -> bytes:
         """Builds the binary representation of the tag including its header and content."""
         if self.__class__ == Tag or self.TAG_ID is None:
-            raise NotImplementedError(
-                "Subclasses of Tag must implement TAG_ID and cannot be Tag directly")
+            raise NotImplementedError("Subclasses of Tag must implement TAG_ID and cannot be Tag directly")
 
         head = struct.pack(">b", self.TAG_ID)
-        if self.__class__ != TagEnd:
-            head += struct.pack(">h", len(self.name)) + \
-                self.name.encode("utf-8")
+        if self.__class__ != TagEnd and self.name is not None:
+            head += struct.pack(">h", len(self.name)) + self.name.encode("utf-8")
         return head + self.write()
 
     @staticmethod
-    def create(stream: Stream) -> 'Tag':
+    def create(stream: Stream, network: bool = False) -> 'Tag':
         """Factory method to create a specific Tag based on its ID read from the stream."""
         type_id = stream.read(1)[0]
         if type_id not in TAG_MAP:
             raise NotImplementedError(f"Tag type {type_id} is not implemented")
+        # Network NBT (Java Edition) since 1.20.2
+        if network:
+            return TAG_MAP[type_id].read(stream, named=False)
+        
         return TAG_MAP[type_id].read(stream)
 
 
@@ -251,8 +253,7 @@ class TagByteArray(Tag):
         if length < 0:
             raise ValueError("Negative length in TagByteArray")
 
-        data = Stream(stream.read(length))
-        payload = [struct.unpack(">b", data.read(1))[0] for _ in range(length)]
+        payload = [struct.unpack(">b", stream.read(1))[0] for _ in range(length)]
         return TagByteArray(name, payload)
 
     def write(self) -> bytes:
@@ -266,7 +267,8 @@ class TagByteArray(Tag):
         return {"type": "TAG_ByteArray", "name": self.name, "payload": [value for value in self.payload]}
 
     def __repr__(self) -> str:
-        console = f"TAG_ByteArray({repr(self.name)}) (entries: {len(self.payload)})\n["
+        console = f"TAG_ByteArray({repr(self.name)}) (entries: {
+            len(self.payload)})\n["
         for value in self.payload[:-1]:
             console += hex(value) + ", "
         return console + hex(value) + "]"
@@ -361,7 +363,8 @@ class TagList(Tag):
         return {"type": "TAG_List", "name": self.name, "data_type": tag_type.TAG_NAME, "payload": [tag.__json__()["payload"] for tag in self.payload]}
 
     def __repr__(self) -> str:
-        console = f"TAG_List({repr(self.name)}) (endries: {len(self.payload)})\n["
+        console = f"TAG_List({repr(self.name)}) (endries: {
+            len(self.payload)})\n["
         for tag in self.payload:
             console += "\n   " + repr(tag).replace('\n', '\n   ')
         return console + "\n]"
@@ -399,7 +402,8 @@ class TagCompound(Tag):
         return {"type": "TAG_Compound", "name": self.name, "payload": [tag.__json__() for tag in self.payload]}
 
     def __repr__(self) -> str:
-        console = f"TAG_Compound({repr(self.name)}) (entries: {len(self.payload)})\n["
+        console = f"TAG_Compound({repr(self.name)}) (entries: {
+            len(self.payload)})\n["
         for tag in self.payload:
             console += "\n   " + repr(tag).replace('\n', '\n   ')
         return console + "\n]"
@@ -422,13 +426,12 @@ class TagIntArray(Tag):
     @staticmethod
     def read(stream: Stream, named: bool = True) -> "TagIntArray":
         """Reads and returns a TagIntArray instance from the stream."""
-        name = read_string() if named else None
+        name = read_string(stream) if named else None
         length = struct.unpack(">i", stream.read(4))[0]
         if length < 0:
             raise ValueError("TAG_IntArray length must be >= 0")
 
-        data = Stream(stream.read(length))
-        payload = [struct.unpack(">i", data.read(4))[0] for _ in range(length)]
+        payload = [struct.unpack(">i", stream.read(4))[0] for _ in range(length)]
         return TagIntArray(name, payload)
 
     def write(self) -> bytes:
@@ -442,7 +445,8 @@ class TagIntArray(Tag):
         return {"type": "TAG_IntArray", "name": self.name, "payload": [value for value in self.payload]}
 
     def __repr__(self) -> str:
-        console = f"TAG_IntArray({repr(self.name)}) (entries: {len(self.payload)})\n["
+        console = f"TAG_IntArray({repr(self.name)}) (entries: {
+            len(self.payload)})\n["
         for value in self.payload[:-1]:
             console += repr(value) + ", "
         return console + repr(value) + "]"
@@ -465,13 +469,12 @@ class TagLongArray(Tag):
     @staticmethod
     def read(stream: Stream, named: bool = True) -> "TagLongArray":
         """Reads and returns a TagLongArray instance from the stream."""
-        name = read_string() if named else None
+        name = read_string(stream) if named else None
         length = struct.unpack(">i", stream.read(4))[0]
         if length < 0:
             raise ValueError("TAG_LongArray length must be >= 0")
 
-        data = Stream(stream.read(length))
-        payload = [struct.unpack(">q", data.read(8))[0] for _ in range(length)]
+        payload = [struct.unpack(">q", stream.read(8))[0] for _ in range(length)]
         return TagLongArray(name, payload)
 
     def write(self) -> bytes:
@@ -485,7 +488,8 @@ class TagLongArray(Tag):
         return {"type": "TAG_LongArray", "name": self.name, "payload": [value for value in self.payload]}
 
     def __repr__(self) -> str:
-        console = f"TAG_LongArray({repr(self.name)}) (entries: {len(self.payload)})\n["
+        console = f"TAG_LongArray({repr(self.name)}) (entries: {
+            len(self.payload)})\n["
         for value in self.payload[:-1]:
             console += repr(value) + ", "
         return console + repr(value) + "]"
